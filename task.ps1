@@ -1,94 +1,93 @@
-# --------------------------------------------------------------------------------------
-# 1. КОНФІГУРАЦІЯ ЗМІННИХ
-# --------------------------------------------------------------------------------------
-$location = "centralus" # Надійний регіон
+# Змінні для конфігурації ресурсів
 $resourceGroupName = "mate-azure-task-9"
-$networkSecurityGroupName = "defaultnsg"
-$virtualNetworkName = "vnet"
-$subnetName = "default"
-$vnetAddressPrefix = "10.0.0.0/16"
-$subnetAddressPrefix = "10.0.0.0/24"
-$publicIpAddressName = "linuxboxpip"
+$location = "centralus" # Або інший регіон, який ви використовуєте
+$vmSize = "Standard_B1s" # Вимоги завдання
+
+# Облікові дані для VM
+$Username = "azureuser"
+$Password = "YourSecurePassword123" # Замініть на ваш пароль
+$DnsLabel = "matebox-task9-server-1158875353" # Замініть на ваш унікальний DNS-лейбл
+$vmName = "matebox"
 $sshKeyName = "linuxboxsshkey"
 
-# Читання SSH ключа: додано -Raw для коректного формату
-$sshKeyPublicKey = Get-Content "$HOME\.ssh\id_rsa.pub" -Raw
-$vmName = "matebox"
-$vmImage = "Ubuntu2204"
-$vmSize = "Standard_B1s" # ПОВЕРНЕНО ДО ВИМОГИ ЗАВДАННЯ!
+# Змінні для мережевих ресурсів
+$virtualNetworkName = "mateacademy-vnet"
+$subnetName = "mateacademy-subnet"
+$networkSecurityGroupName = "mateacademy-nsg"
+$publicIpAddressName = "mateacademy-public-ip"
+$vmImage = "Ubuntu2204" # Виправлення: Використання friendly name
 
-# Додаткові змінні
-$DnsLabel = "matebox-task9-server-$(Get-Random)"
-$Username = "azureuser" # Ім'я користувача для SSH
-$NicName = "matebox-nic"
-$Password = "MateAcademy-2025!" # Тимчасовий пароль для об'єкта Credential
-
-# --------------------------------------------------------------------------------------
-# 2. СТВОРЕННЯ ГРУПИ РЕСУРСІВ
-# --------------------------------------------------------------------------------------
-Write-Host "Creating a resource group $resourceGroupName ..."
-New-AzResourceGroup -Name $resourceGroupName -Location $location -Force | Out-Null
-
-# --------------------------------------------------------------------------------------
-# 3. СТВОРЕННЯ МЕРЕЖЕВОГО КОНТЕКСТУ ТА NSG
-# --------------------------------------------------------------------------------------
-Write-Host "Creating a network security group $networkSecurityGroupName ..."
-$nsgRuleSSH = New-AzNetworkSecurityRuleConfig -Name SSH  -Protocol Tcp -Direction Inbound -Priority 1001 -SourceAddressPrefix * -SourcePortRange * -DestinationAddressPrefix * -DestinationPortRange 22 -Access Allow;
-$nsgRuleHTTP = New-AzNetworkSecurityRuleConfig -Name HTTP  -Protocol Tcp -Direction Inbound -Priority 1002 -SourceAddressPrefix * -SourcePortRange * -DestinationAddressPrefix * -DestinationPortRange 8080 -Access Allow;
-$nsg = New-AzNetworkSecurityGroup -Name $networkSecurityGroupName -ResourceGroupName $resourceGroupName -Location $location -SecurityRules $nsgRuleSSH, $nsgRuleHTTP
-
-# 1. Створення Virtual Network та Subnet
-Write-Host "1. Creating Virtual Network '$virtualNetworkName' and Subnet '$subnetName'..."
-$subnetConfig = New-AzVirtualNetworkSubnetConfig -Name $subnetName -AddressPrefix $subnetAddressPrefix
-$vnet = New-AzVirtualNetwork -ResourceGroupName $resourceGroupName -Location $location -Name $virtualNetworkName -AddressPrefix $vnetAddressPrefix -Subnet $subnetConfig
-
-# 2. Створення Public IP Address з DNS-лейблом
-Write-Host "2. Creating Public IP Address '$publicIpAddressName' with DNS label '$DnsLabel'..."
-$pip = New-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Location $location -Name $publicIpAddressName -AllocationMethod Static -DomainNameLabel $DnsLabel
-
-# 3. Створення SSH Key Resource
-Write-Host "3. Creating SSH Key Resource '$sshKeyName'..."
-$sshKey = New-AzSshKey -ResourceGroupName $resourceGroupName -Name $sshKeyName -PublicKey $sshKeyPublicKey
-
-# 4. СТВОРЕННЯ МЕРЕЖЕВОГО ІНТЕРФЕЙСУ (NIC)
-Write-Host "4. Creating Network Interface Card (NIC) '$NicName'..."
-$currentVnet = Get-AzVirtualNetwork -ResourceGroupName $resourceGroupName -Name $virtualNetworkName
-$currentPip = Get-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Name $publicIpAddressName
-$subnet = $currentVnet.Subnets | Where-Object {$_.Name -eq $subnetName}
-
-$nic = New-AzNetworkInterface `
-    -ResourceGroupName $resourceGroupName `
-    -Location $location `
-    -Name $NicName `
-    -SubnetId $subnet.Id `
-    -PublicIpAddressId $currentPip.Id `
-    -NetworkSecurityGroupId $nsg.Id
-
-# 5. СТВОРЕННЯ ВІРТУАЛЬНОЇ МАШИНИ
-Write-Host "5. Creating Virtual Machine '$vmName' of size '$vmSize' (This may take a few minutes)..."
-
-# Тимчасовий об'єкт Credential
+# Облікові дані для підключення
 $securePassword = ConvertTo-SecureString $Password -AsPlainText -Force
 $cred = New-Object System.Management.Automation.PSCredential($Username, $securePassword)
 
-# 5а. Створення конфігураційного об'єкта VM
-$vmConfig = New-AzVMConfig -VMName $vmName -VMSize $vmSize
+# --- 1. СТВОРЕННЯ ГРУПИ РЕСУРСІВ ---
+Write-Host "1. Creating Resource Group '$resourceGroupName'..."
+$resourceGroup = New-AzResourceGroup -Name $resourceGroupName -Location $location
 
-# 5b. Встановлення профілю безпеки як Standard (Це має спрацювати, оскільки функція зареєстрована!)
-$vmConfig = Set-AzVMSecurityProfile -VM $vmConfig -SecurityType Standard
+# --- 2. СТВОРЕННЯ SSH-КЛЮЧА ---
+Write-Host "2. Creating SSH Key Resource '$sshKeyName'..."
+# Перевіряємо, чи існує ключ, інакше створюємо
+try {
+    $sshKey = Get-AzSshKey -ResourceGroupName $resourceGroupName -Name $sshKeyName -ErrorAction Stop
+    Write-Host "   SSH key already exists."
+} catch {
+    # Створюємо новий SSH Key Resource
+    $sshKey = New-AzSshKey -ResourceGroupName $resourceGroupName -Name $sshKeyName -Location $location
+    Write-Host "   SSH key created successfully."
+}
+$sshKeyPublicKey = $sshKey.PublicKey # Зберігаємо публічний ключ
 
-# 5c. Встановлення операційної системи та облікових даних через Credential
-$vmConfig = Set-AzVMOperatingSystem -VM $vmConfig -Linux -ComputerName $vmName -Credential $cred -DisablePasswordAuthentication
+# --- 3. СТВОРЕННЯ МЕРЕЖЕВОЇ ІНФРАСТРУКТУРИ ---
 
-# 5d. Додавання образу та мережевого інтерфейсу
-$vmConfig = Set-AzVMSourceImage -VM $vmConfig -Publisher 'Canonical' -Offer '0001-com-ubuntu-server-jammy' -Skus '22_04-lts' -Version 'latest'
-$vmConfig = Add-AzVMNetworkInterface -VM $vmConfig -Id $nic.Id
+# 3а. Створення віртуальної мережі (VNet)
+Write-Host "3a. Creating Virtual Network '$virtualNetworkName'..."
+$vnet = New-AzVirtualNetwork -ResourceGroupName $resourceGroupName -Location $location -Name $virtualNetworkName -AddressPrefix "10.0.0.0/16"
 
-# 5e. Прив'язка SSH ключа
-$vmConfig = Add-AzVMSshPublicKey -VM $vmConfig -Path "/home/$Username/.ssh/authorized_keys" -KeyData $sshKeyPublicKey
+# 3b. Додавання підмережі
+Write-Host "3b. Adding Subnet '$subnetName'..."
+$subnet = Add-AzVirtualNetworkSubnetConfig -Name $subnetName -AddressPrefix "10.0.0.0/24" -VirtualNetwork $vnet
 
-# 5f. Створення VM
-$vm = New-AzVm -ResourceGroupName $resourceGroupName -Location $location -VM $vmConfig
+# 3c. Оновлення VNet з підмережею
+$vnet = Set-AzVirtualNetwork -VirtualNetwork $vnet
+
+# 3d. Створення Public IP Address
+Write-Host "3d. Creating Public IP Address '$publicIpAddressName'..."
+$pip = New-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Location $location -Name $publicIpAddressName -AllocationMethod Static -DomainNameLabel $DnsLabel
+
+# 3e. Створення Network Security Group (NSG)
+Write-Host "3e. Creating Network Security Group '$networkSecurityGroupName'..."
+$nsg = New-AzNetworkSecurityGroup -ResourceGroupName $resourceGroupName -Location $location -Name $networkSecurityGroupName
+
+# 3f. Додавання правил NSG
+Write-Host "3f. Adding NSG rules (SSH 22, HTTP 8080)..."
+$nsg = Add-AzNetworkSecurityRuleConfig -NetworkSecurityGroup $nsg -Name "SSH" -Description "Allow SSH" -Access Allow -Protocol Tcp -Direction Inbound -Priority 100 -SourceAddressPrefix "*" -SourcePortRange "*" -DestinationAddressPrefix "*" -DestinationPortRange 22
+$nsg = Add-AzNetworkSecurityRuleConfig -NetworkSecurityGroup $nsg -Name "HTTP_8080" -Description "Allow HTTP 8080" -Access Allow -Protocol Tcp -Direction Inbound -Priority 110 -SourceAddressPrefix "*" -SourcePortRange "*" -DestinationAddressPrefix "*" -DestinationPortRange 8080
+$nsg = Set-AzNetworkSecurityGroup -NetworkSecurityGroup $nsg
+
+# 3g. Створення мережевого інтерфейсу (NIC)
+Write-Host "3g. Creating Network Interface..."
+$nic = New-AzNetworkInterface -ResourceGroupName $resourceGroupName -Location $location -Name "$vmName-nic" -Subnet $vnet.Subnets[0] -NetworkSecurityGroup $nsg -PublicIpAddress $pip
+
+# --- 4. СТВОРЕННЯ КОНФІГУРАЦІЙНОГО ОБ'ЄКТА VM (НЕ ВИКОРИСТОВУЄТЬСЯ, АЛЕ ПОТРІБЕН ДЛЯ ДЕЯКИХ СТАРШИХ ВЕРСІЙ) ---
+# Цей розділ був видалений/замінений для спрощення згідно вимог ментора.
+
+# --- 5. СТВОРЕННЯ ВІРТУАЛЬНОЇ МАШИНИ З ПРАВИЛЬНИМИ ПАРАМЕТРАМИ ---
+Write-Host "5. Creating Virtual Machine '$vmName' of size '$vmSize' (This may take a few minutes)..."
+
+$vm = New-AzVm `
+    -ResourceGroupName $resourceGroupName `
+    -Name $vmName `
+    -Location $location `
+    -Image $vmImage ` # ВИПРАВЛЕННЯ 1: Використання Friendly Name ("Ubuntu2204")
+    -Size $vmSize `
+    -VnetName $virtualNetworkName `
+    -SubnetName $subnetName `
+    -PublicIpAddressName $publicIpAddressName `
+    -SshKeyName $sshKeyName ` # ВИПРАВЛЕННЯ 2: Прив'язка існуючого ресурсу SSH Key
+    -NetworkSecurityGroupName $networkSecurityGroupName `
+    -DisablePasswordAuthentication `
+    -Credential $cred
 
 Write-Host "✅ VM Deployment Initiated. VM Name: $vmName"
 Write-Host "   Public DNS Name: $($DnsLabel).$($location).cloudapp.azure.com"
