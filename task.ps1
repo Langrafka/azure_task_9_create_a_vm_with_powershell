@@ -5,17 +5,17 @@ $vmSize = "Standard_B1s" # Вимоги завдання
 
 # Облікові дані для VM
 $Username = "azureuser"
-$Password = "YourSecurePassword123" # Замініть на ваш пароль
-$DnsLabel = "matebox-task9-server-1158875353" # Замініть на ваш унікальний DNS-лейбл
+$Password = "Yaroslava123" # ВСТАНОВЛЕНО ВАШ ПАРОЛЬ
+$DnsLabel = "matebox-task9-server-1158875353" # ВСТАНОВЛЕНО ВАШУ УНІКАЛЬНУ МІТКУ DNS
 $vmName = "matebox"
 $sshKeyName = "linuxboxsshkey"
 
-# Змінні для мережевих ресурсів
-$virtualNetworkName = "mateacademy-vnet"
-$subnetName = "mateacademy-subnet"
-$networkSecurityGroupName = "mateacademy-nsg"
-$publicIpAddressName = "mateacademy-public-ip"
-$vmImage = "Ubuntu2204" # Виправлення: Використання friendly name
+# Змінні для мережевих ресурсів (ВИПРАВЛЕНО ЗГІДНО З ВИМОГАМИ ЗАВДАННЯ)
+$virtualNetworkName = "vnet"
+$subnetName = "default"
+$networkSecurityGroupName = "defaultnsg"
+$publicIpAddressName = "linuxboxpip"
+$vmImage = "Ubuntu2204" # Використання Friendly Name
 
 # Облікові дані для підключення
 $securePassword = ConvertTo-SecureString $Password -AsPlainText -Force
@@ -36,7 +36,8 @@ try {
     $sshKey = New-AzSshKey -ResourceGroupName $resourceGroupName -Name $sshKeyName -Location $location
     Write-Host "   SSH key created successfully."
 }
-$sshKeyPublicKey = $sshKey.PublicKey # Зберігаємо публічний ключ
+# Зберігаємо публічний ключ для подальшого використання (хоча $SshKeyName сам його прив'яже)
+$sshKeyPublicKey = $sshKey.PublicKey
 
 # --- 3. СТВОРЕННЯ МЕРЕЖЕВОЇ ІНФРАСТРУКТУРИ ---
 
@@ -69,9 +70,6 @@ $nsg = Set-AzNetworkSecurityGroup -NetworkSecurityGroup $nsg
 Write-Host "3g. Creating Network Interface..."
 $nic = New-AzNetworkInterface -ResourceGroupName $resourceGroupName -Location $location -Name "$vmName-nic" -Subnet $vnet.Subnets[0] -NetworkSecurityGroup $nsg -PublicIpAddress $pip
 
-# --- 4. СТВОРЕННЯ КОНФІГУРАЦІЙНОГО ОБ'ЄКТА VM (НЕ ВИКОРИСТОВУЄТЬСЯ, АЛЕ ПОТРІБЕН ДЛЯ ДЕЯКИХ СТАРШИХ ВЕРСІЙ) ---
-# Цей розділ був видалений/замінений для спрощення згідно вимог ментора.
-
 # --- 5. СТВОРЕННЯ ВІРТУАЛЬНОЇ МАШИНИ З ПРАВИЛЬНИМИ ПАРАМЕТРАМИ ---
 Write-Host "5. Creating Virtual Machine '$vmName' of size '$vmSize' (This may take a few minutes)..."
 
@@ -79,12 +77,12 @@ $vm = New-AzVm `
     -ResourceGroupName $resourceGroupName `
     -Name $vmName `
     -Location $location `
-    -Image $vmImage ` # ВИПРАВЛЕННЯ 1: Використання Friendly Name ("Ubuntu2204")
+    -Image $vmImage `
     -Size $vmSize `
     -VnetName $virtualNetworkName `
     -SubnetName $subnetName `
     -PublicIpAddressName $publicIpAddressName `
-    -SshKeyName $sshKeyName ` # ВИПРАВЛЕННЯ 2: Прив'язка існуючого ресурсу SSH Key
+    -SshKeyName $sshKeyName ` # Прив'язка існуючого ресурсу SSH Key
     -NetworkSecurityGroupName $networkSecurityGroupName `
     -DisablePasswordAuthentication `
     -Credential $cred
